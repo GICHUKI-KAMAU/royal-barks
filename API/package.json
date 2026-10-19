@@ -1,0 +1,20 @@
+{
+  "name": "royal-barks-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "bootstrap-admin": "node scripts/bootstrap-admin.js",
+    "bootstrap-admin-invitation": "node scripts/invite-first-admin.js",
+    "resend-admin-invitation": "node scripts/resend-admin-invitation.js",
+    "email-test": "node scripts/verify-email-delivery.js",
+    "test": "node --test",
+    "lint": "eslint src test scripts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "nodemailer": "^10.1.6"
+  }
+}

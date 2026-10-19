@@ -1,0 +1,6 @@
+node_modules/
+**/dist/
+**/.venv/
+API/data/
+royal_barks.sqlite3
+*.tsbuildinfo

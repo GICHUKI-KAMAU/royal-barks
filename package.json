@@ -1,0 +1,32 @@
+{
+  "name": "royal-barks",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "UI",
+    "API"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:frontend\" \"npm:dev:backend\"",
+    "dev:frontend": "npm --prefix UI run dev",
+    "dev:backend": "npm --prefix API run dev",
+    "email:test": "npm --prefix API run email-test --",
+    "email:resend-admin-invitation": "npm --prefix API run resend-admin-invitation --",
+    "build": "npm run build --workspace UI && node --check API/src/server.js && node --check API/src/database.js && node --check API/src/auth.js && node --check API/src/email.js && node --check API/src/modules/chama.js && node --check API/src/modules/financeQueries.js && node --check API/src/modules/imports.js && node --check API/scripts/resend-admin-invitation.js && node --check API/scripts/verify-email-delivery.js",
+    "test": "npm run test --workspace API",
+    "lint": "eslint UI/src API/src API/test API/scripts",
+    "typecheck": "npm run typecheck --workspace UI",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.71.2"
+  }
+}
