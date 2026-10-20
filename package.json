@@ -15,6 +15,7 @@
     "email:resend-admin-invitation": "npm --prefix API run resend-admin-invitation --",
     "db:migrate:postgres": "npm --prefix API run db:migrate:postgres",
     "db:import:sqlite": "npm --prefix API run db:import:sqlite",
+    "test:postgres": "npm --prefix API run test:postgres",
     "build": "npm run build --workspace UI && node --check API/src/server.js && node --check API/src/database.js && node --check API/src/postgresDatabase.js && node --check API/src/postgres.worker.js && node --check API/src/auth.js && node --check API/src/email.js && node --check API/src/modules/chama.js && node --check API/src/modules/financeQueries.js && node --check API/src/modules/imports.js && node --check API/scripts/migrate-postgresql.js && node --check API/scripts/import-sqlite-to-postgres.js && node --check API/scripts/resend-admin-invitation.js && node --check API/scripts/verify-email-delivery.js",
     "test": "npm run test --workspace API",
     "lint": "eslint UI/src API/src API/test API/scripts",

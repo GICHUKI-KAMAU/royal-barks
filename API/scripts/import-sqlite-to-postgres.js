@@ -111,7 +111,7 @@ function readRows(source, tableName) {
   return source.prepare(`SELECT * FROM "${tableName}"`).all();
 }
 
-function insertRows(target, tableName, rows) {
+async function insertRows(target, tableName, rows) {
   if (rows.length === 0) {
     return 0;
   }
@@ -119,24 +119,26 @@ function insertRows(target, tableName, rows) {
   const columns = Object.keys(rows[0]);
   const columnSql = columns.map((column) => `"${column}"`).join(", ");
   const placeholders = columns.map((_, index) => `$${index + 1}`).join(", ");
-  const statement = target.prepare(
-    `INSERT INTO public."${tableName}" (${columnSql}) VALUES (${placeholders})`,
-  );
+  const statement = `INSERT INTO public."${tableName}" (${columnSql}) VALUES (${placeholders})`;
 
   for (const row of rows) {
-    statement.run(...columns.map((column) => row[column]));
+    await target.query(
+      statement,
+      columns.map((column) => row[column]),
+    );
   }
 
   return rows.length;
 }
 
 async function ensureTargetIsEmpty(target) {
-  const counts = await Promise.all(
-    [...TABLES_IN_ORDER, ...EPHEMERAL_TABLES].map(async (tableName) => {
-      const result = await target.query(`SELECT COUNT(*) AS count FROM public."${tableName}"`);
-      return Number(result.rows[0].count);
-    }),
-  );
+  const tableNames = [...TABLES_IN_ORDER, ...EPHEMERAL_TABLES];
+  const counts = [];
+
+  for (const tableName of tableNames) {
+    const result = await target.query(`SELECT COUNT(*) AS count FROM public."${tableName}"`);
+    counts.push(Number(result.rows[0].count));
+  }
 
   if (counts.some((count) => count > 0)) {
     throw new Error(
@@ -197,7 +199,7 @@ async function importRecords(source, target) {
   try {
     for (const tableName of TABLES_IN_ORDER) {
       const rows = readRows(source, tableName);
-      counts[tableName] = insertRows(target, tableName, rows);
+      counts[tableName] = await insertRows(target, tableName, rows);
     }
 
     await synchronizeIdentitySequences(target);

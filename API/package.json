@@ -12,6 +12,7 @@
     "email-test": "node scripts/verify-email-delivery.js",
     "db:migrate:postgres": "node scripts/migrate-postgresql.js",
     "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",
+    "test:postgres": "node scripts/check-postgres-adapter.js",
     "test": "node --test",
     "lint": "eslint src test scripts"
   },

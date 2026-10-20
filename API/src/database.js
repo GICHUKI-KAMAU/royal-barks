@@ -9,13 +9,20 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 export function createDatabase() {
   loadEnvironment(repositoryRoot);
 
+  if (process.env.ROYAL_BARKS_DB) {
+    return createSqliteDatabase(process.env.ROYAL_BARKS_DB);
+  }
+
   if (process.env.DATABASE_URL) {
     return createPostgresDatabase();
   }
 
-  const databasePath =
-    process.env.ROYAL_BARKS_DB || path.join(repositoryRoot, "API", "data", "royal_barks.sqlite3");
+  const databasePath = path.join(repositoryRoot, "API", "data", "royal_barks.sqlite3");
 
+  return createSqliteDatabase(databasePath);
+}
+
+function createSqliteDatabase(databasePath) {
   mkdirSync(path.dirname(databasePath), { recursive: true });
 
   const database = new Database(databasePath);
