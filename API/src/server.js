@@ -500,7 +500,17 @@ async function route(method, url, p, req, res, user) {
 }
 
 const server = http.createServer(async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
+  const allowedOrigins = [
+    process.env.APP_BASE_URL || "http://127.0.0.1:5173",
+    ...(process.env.CORS_ALLOWED_ORIGINS || "").split(",").map((origin) => origin.trim()),
+  ];
+  const requestOrigin = req.headers.origin;
+
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -539,9 +549,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 const port = Number(process.env.PORT || 8001);
-server.listen(port, "127.0.0.1", () =>
-  console.log(`Royal Barks API running at http://127.0.0.1:${port}`),
-);
+const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+server.listen(port, host, () => console.log(`Royal Barks API running at http://${host}:${port}`));
 process.on("SIGINT", () => {
   server.close(() => {
     db.close();

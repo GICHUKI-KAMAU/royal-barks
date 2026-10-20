@@ -25,8 +25,18 @@ const normalizeEmail = (value) =>
     .toLowerCase();
 const validEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+function sessionCookie(token, maxAgeSeconds) {
+  const production = process.env.NODE_ENV === "production";
+  const sameSite = process.env.SESSION_COOKIE_SAME_SITE || (production ? "None" : "Strict");
+  const secure = production || sameSite === "None";
+  const secureFlag = secure ? "; Secure" : "";
+
+  return `rb_session=${token}; HttpOnly; SameSite=${sameSite}; Path=/; Max-Age=${maxAgeSeconds}${secureFlag}`;
+}
+
 export function initializeAuth(db, log) {
-  db.exec(`
+  if (db.kind !== "postgres") {
+    db.exec(`
     CREATE TABLE IF NOT EXISTS profiles (
       id INTEGER PRIMARY KEY, auth_user_id TEXT NOT NULL UNIQUE, member_id INTEGER UNIQUE REFERENCES members(id),
       display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT,
@@ -67,16 +77,18 @@ export function initializeAuth(db, log) {
     CREATE TRIGGER IF NOT EXISTS prevent_admin_suspension BEFORE UPDATE OF account_status ON profiles
       WHEN OLD.account_status='ACTIVE' AND NEW.account_status!='ACTIVE' AND EXISTS(SELECT 1 FROM role_assignments WHERE profile_id=OLD.id AND role='ADMIN')
       BEGIN SELECT RAISE(ABORT,'Transfer Admin role before suspending this account'); END;
-  `);
-  const approvalsSql =
-    db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='import_approvals'").get()
-      ?.sql || "";
-  if (approvalsSql.includes("imported_by_profile_id<>"))
-    db.transaction(() => {
-      db.exec(
-        `CREATE TABLE import_approvals_v2(import_id INTEGER PRIMARY KEY REFERENCES imports(id) ON DELETE CASCADE,imported_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),reviewed_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),approved_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),CHECK(reviewed_by_profile_id<>approved_by_profile_id));INSERT INTO import_approvals_v2 SELECT * FROM import_approvals;DROP TABLE import_approvals;ALTER TABLE import_approvals_v2 RENAME TO import_approvals;`,
-      );
-    })();
+    `);
+    const approvalsSql =
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='import_approvals'")
+        .get()?.sql || "";
+    if (approvalsSql.includes("imported_by_profile_id<>"))
+      db.transaction(() => {
+        db.exec(
+          `CREATE TABLE import_approvals_v2(import_id INTEGER PRIMARY KEY REFERENCES imports(id) ON DELETE CASCADE,imported_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),reviewed_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),approved_by_profile_id INTEGER NOT NULL REFERENCES profiles(id),CHECK(reviewed_by_profile_id<>approved_by_profile_id));INSERT INTO import_approvals_v2 SELECT * FROM import_approvals;DROP TABLE import_approvals;ALTER TABLE import_approvals_v2 RENAME TO import_approvals;`,
+        );
+      })();
+  }
   const transporter = () => {
     try {
       return createMailTransporter();
@@ -208,7 +220,7 @@ export function initializeAuth(db, log) {
           db.prepare("UPDATE auth_rate_limits SET failures=failures+1 WHERE key=?").run(rateKey);
         else
           db.prepare(
-            "INSERT OR REPLACE INTO auth_rate_limits(key,window_started_at,failures) VALUES(?,?,1)",
+            "INSERT INTO auth_rate_limits(key,window_started_at,failures) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET window_started_at=excluded.window_started_at,failures=excluded.failures",
           ).run(rateKey, now());
         fail(401, "Email or password is incorrect, or the account is not active.");
       }
@@ -217,10 +229,7 @@ export function initializeAuth(db, log) {
       db.prepare(
         "INSERT INTO auth_sessions(profile_id,token_hash,created_at,expires_at) VALUES(?,?,?,?)",
       ).run(profile.id, hash(token), now(), new Date(Date.now() + SESSION_MS).toISOString());
-      res.setHeader(
-        "Set-Cookie",
-        `rb_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
-      );
+      res.setHeader("Set-Cookie", sessionCookie(token, SESSION_MS / 1000));
       auditEvent(profile.id, profile.id, "login");
       return { user: publicProfile(profile.id) };
     }
@@ -234,11 +243,7 @@ export function initializeAuth(db, log) {
         db.prepare(
           "UPDATE auth_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
         ).run(now(), hash(token));
-      res.setHeader(
-        "Set-Cookie",
-        "rb_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0" +
-          (process.env.NODE_ENV === "production" ? "; Secure" : ""),
-      );
+      res.setHeader("Set-Cookie", sessionCookie("", 0));
       if (user) auditEvent(user.id, user.id, "logout");
       return { ok: true };
     }

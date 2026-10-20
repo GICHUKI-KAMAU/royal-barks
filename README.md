@@ -1,6 +1,6 @@
 # Royal Barks
 
-Royal Barks is a group management application with a React and TypeScript UI and a Node.js API. The API uses SQLite through `better-sqlite3`. Financial, authentication, and Chama authorization checks run on the server.
+Royal Barks is a group management application with a React and TypeScript UI and a Node.js API. The API supports local SQLite through `better-sqlite3` and hosted PostgreSQL through `pg`. Financial, authentication, and Chama authorization checks run on the server.
 
 ## Architecture
 
@@ -18,14 +18,17 @@ UI/                         React application and Vite configuration
     utils/                  Currency/date formatting and CSV parsing
 API/
   src/
-    database.js             SQLite connection, base schema, additive migration
+    database.js             Database selection and SQLite base schema
+    postgresDatabase.js     PostgreSQL compatibility adapter
+    postgres.worker.js      Isolated PostgreSQL connection
     auth.js                 Sessions, invitations, password reset, roles, audit
     modules/
       chama.js              Chama schema, transitions, selection, and payout rules
       financeQueries.js     Dashboard, member balances, and report queries
       imports.js            CSV import preview, validation, and posting
     server.js               HTTP API, financial writes, imports, meetings, and routing
-  scripts/                  First Admin password bootstrap and invitation commands
+  migrations/               Ordered PostgreSQL schema and security migrations
+  scripts/                  Admin, migration, and database import commands
   test/                     Auth, finance, access-control, and Chama tests
 shared/
   contracts.js              Safe role and status constants imported by both apps
@@ -51,26 +54,35 @@ Copy `.env.example` to `.env` and configure SMTP before sending invitations or p
 
 The API reads the root `.env` file. Supported settings include:
 
-| Variable                                | Purpose                              | Default                        |
-| --------------------------------------- | ------------------------------------ | ------------------------------ |
-| `PORT`                                  | Local API listener port              | `8001`                         |
-| `ROYAL_BARKS_DB`                        | SQLite database path                 | `API/data/royal_barks.sqlite3` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` | SMTP transport                       | unset / `587` / `false`        |
-| `SMTP_USER`, `SMTP_PASSWORD`            | Optional SMTP authentication         | unset                          |
-| `SMTP_FROM`                             | Invitation and reset sender          | required for mail              |
-| `APP_BASE_URL`                          | Frontend URL included in email links | `http://127.0.0.1:5173`        |
-| `API_PROXY_TARGET`                      | Vite development proxy destination   | `http://127.0.0.1:8001`        |
-| `VITE_API_BASE_URL`                     | Browser API base path                | `/api`                         |
+| Variable                                | Purpose                              | Default                                 |
+| --------------------------------------- | ------------------------------------ | --------------------------------------- |
+| `PORT`                                  | Local API listener port              | `8001`                                  |
+| `ROYAL_BARKS_DB`                        | SQLite database path                 | `API/data/royal_barks.sqlite3`          |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` | SMTP transport                       | unset / `587` / `false`                 |
+| `SMTP_USER`, `SMTP_PASSWORD`            | Optional SMTP authentication         | unset                                   |
+| `SMTP_FROM`                             | Invitation and reset sender          | required for mail                       |
+| `APP_BASE_URL`                          | Frontend URL included in email links | `http://127.0.0.1:5173`                 |
+| `API_PROXY_TARGET`                      | Vite development proxy destination   | `http://127.0.0.1:8001`                 |
+| `VITE_API_BASE_URL`                     | Browser API base path                | `/api`                                  |
+| `DATABASE_URL`                          | Optional PostgreSQL connection URL   | unset (SQLite)                          |
+| `DATABASE_SSL`                          | PostgreSQL TLS; set `false` locally  | `true`                                  |
+| `SESSION_COOKIE_SAME_SITE`              | Session cookie cross-site policy     | `Strict` locally / `None` in production |
 
-Keep the browser API base same-origin (normally `/api`) so the HttpOnly session cookie works with a reverse proxy. `API_PROXY_TARGET` points the Vite development proxy at the local Node API. `APP_BASE_URL` must match the browser origin; the API uses it to validate state-changing requests behind the proxy. The client API helper includes credentials and moves an expired/revoked session back to sign-in.
+For local development, keep the browser API base same-origin (`/api`) and let Vite proxy requests to the Node API. For separate production hosts, set `VITE_API_BASE_URL` to the HTTPS API URL and set `APP_BASE_URL` to the frontend origin; the API allows credentialed requests only from that origin. The API uses `APP_BASE_URL` to validate state-changing requests. Production cookies use `SameSite=None; Secure`; browser third-party cookie restrictions may make a same-site proxy or custom domain preferable. The client API helper includes credentials and moves an expired/revoked session back to sign-in.
 
 ## Database and migrations
 
-The active default database is `API/data/royal_barks.sqlite3`. `API/src/database.js` creates missing tables and applies the existing additive `supplemental_json` import migration. Authentication and Chama initialize their own tables and backward-compatible additions when the API starts. The migration path does not drop, reset, or recreate existing records.
+Without `DATABASE_URL`, the API uses `API/data/royal_barks.sqlite3`. When `DATABASE_URL` is set, it uses PostgreSQL instead. Run `npm run db:migrate:postgres` to apply the ordered migrations before starting the API. PostgreSQL migrations add tables and security rules; they do not drop or reset records.
+
+To move local records, configure the PostgreSQL URL in the ignored root `.env`, run `npm run db:migrate:postgres`, then run `npm run db:import:sqlite` and type `IMPORT` at its confirmation prompt. The importer refuses a non-empty PostgreSQL target and records a source fingerprint to prevent duplicate imports. It preserves financial history, profiles, role assignments, pending invitation tokens, audit records, and Chama records. Existing login sessions and temporary login rate limits are intentionally omitted, so users must sign in again. Keep a protected SQLite backup until you reconcile member counts and financial totals.
+
+For local PostgreSQL, set `DATABASE_SSL=false` and use a URL for your local database. For Supabase, use the session pooler connection string from the project's Connect panel and keep `DATABASE_SSL=true`. Never put the database URL in a `VITE_` variable. All application tables have RLS enabled with no browser-facing policies; the API connects server-side and continues to enforce user and role permissions.
+
+The current API exposes synchronous SQLite-style queries. PostgreSQL runs in a worker thread through a compatibility adapter so existing authorization and financial rules remain unchanged during migration. Requests wait synchronously for database responses; this fits the current small group but should be replaced with asynchronous repository methods before scaling to heavier concurrent use.
 
 The root `royal_barks.sqlite3` is retained as a historical source and is not the API's default database. The older Python implementation is retained under `API/legacy_python` for reference. Take a protected backup before applying application updates; do not delete either database to solve migration errors.
 
-SQLite does not provide PostgreSQL row-level security. The API scopes sensitive queries and checks each privileged operation server-side. Keep the SQLite file private and do not expose the API directly to the public internet. A public or multi-tenant deployment needs a reviewed PostgreSQL/RLS migration and production transport/session configuration.
+The root `royal_barks.sqlite3` is retained as a historical source and is not the API's default database. The older Python implementation is retained under `API/legacy_python` for reference. Take a protected backup before applying application updates; do not delete either database to solve migration errors.
 
 ## Authentication setup
 
@@ -86,7 +98,7 @@ Run `npm run email:test -- recipient@example.org` to verify SMTP and send a test
 
 Members without email addresses remain member records without login accounts; do not share credentials or use unverified email addresses. A future phone/SMS sign-in requires a separately configured and tested identity provider.
 
-Admin transfers are transactional and audited. Emergency recovery is restricted to an authorized database operator using a local protected SQLite session while the API is stopped. Never create a public recovery endpoint or publish recovery credentials.
+Admin transfers are transactional and audited. Emergency recovery is restricted to an authorized database operator using protected direct database access while the API is stopped. Never create a public recovery endpoint or publish recovery credentials.
 
 ## Development commands
 
@@ -107,6 +119,25 @@ npm run format         # Prettier on application code, docs, and JSON
 npm run format:check   # Prettier verification
 ```
 
+## Vercel frontend deployment
+
+The root `vercel.json` builds the Vite frontend and publishes `UI/dist`, which is
+the output directory created by `npm run build`. Set `VITE_API_BASE_URL` in the
+Vercel project to the deployed API base URL. For a same-origin reverse proxy,
+keep it as `/api`; for a separately hosted API, use its HTTPS URL and configure
+that API's allowed browser origin and secure cookie settings accordingly.
+
+This configuration deploys the frontend only. The API is a persistent Node.js
+HTTP server and runs on a separate Node host; PostgreSQL provides persistent
+data storage. Keep SMTP credentials and other server secrets in the API host's
+environment, never in `VITE_` variables.
+
+## PostgreSQL backend deployment
+
+`render.yaml` defines a free Render Node service. Connect the repository in Render and provide `DATABASE_URL`, `APP_BASE_URL`, and SMTP values in its environment settings. The build applies PostgreSQL migrations before compiling and checking the applications. Set Vercel's `VITE_API_BASE_URL` to the deployed API HTTPS URL and Render's `APP_BASE_URL` to the Vercel site origin. Production sessions use secure cross-site cookies, and the API only allows the configured frontend origin. The Render service needs no local disk because PostgreSQL holds application records.
+
+The Supabase schema and RLS migrations are applied to project `xotlbfjfqbrbtpgujioi`. The SQLite data import still requires the Supabase connection URL in the ignored `.env`; after importing, verify member counts and the April 2026 statement totals before directing users to the hosted API.
+
 ## API and authorization
 
 The browser uses `UI/src/services/apiClient.ts`, which prefixes requests with `VITE_API_BASE_URL`, sends the HttpOnly cookie, and maps expired sessions to the login flow. Vite proxies `/api` to `API_PROXY_TARGET` during development. API authentication, member scoping, and role checks are implemented in `API/src/auth.js` and `API/src/server.js`; protected routes do not trust frontend visibility or submitted role IDs.
@@ -116,7 +147,7 @@ The UI navigation shows all module names while the server limits records and act
 ## Current implementation notes
 
 - Authentication, account invitations, password reset, Admin transfer, user roles, audit events, financial imports, member balances, meetings, and the Chama lifecycle are implemented.
-- Chama card claims use SQLite transactions and uniqueness constraints; authorized viewers receive persisted board updates through server-sent events.
+- Chama card claims use database transactions and uniqueness constraints; authorized viewers receive persisted board updates through server-sent events.
 - The current automated suite covers authentication, role checks, account lifecycle, member scoping, Chama opt-in privacy, card selection, result publication, corrections, and payouts. There is no separate frontend test runner configured yet.
 - Minutes, expenses, and settings currently have navigation entries but do not yet have dedicated record-management workflows.
 - Historical summary imports do not claim a transaction-level historical audit trail when the source transactions were not provided.

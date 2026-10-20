@@ -2,11 +2,16 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
+import { PostgresDatabase } from "./postgresDatabase.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 export function createDatabase() {
   loadEnvironment(repositoryRoot);
+
+  if (process.env.DATABASE_URL) {
+    return createPostgresDatabase();
+  }
 
   const databasePath =
     process.env.ROYAL_BARKS_DB || path.join(repositoryRoot, "API", "data", "royal_barks.sqlite3");
@@ -14,11 +19,27 @@ export function createDatabase() {
   mkdirSync(path.dirname(databasePath), { recursive: true });
 
   const database = new Database(databasePath);
+  database.kind = "sqlite";
   database.pragma("foreign_keys = ON");
   database.pragma("journal_mode = WAL");
 
   createBaseSchema(database);
   migrateImportSupplementalField(database);
+
+  return database;
+}
+
+function createPostgresDatabase() {
+  const database = new PostgresDatabase({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_SSL !== "false",
+  });
+  const schema = database.prepare("SELECT to_regclass('public.members') AS members_table").get();
+
+  if (!schema?.members_table) {
+    database.close();
+    throw new Error("PostgreSQL schema is missing. Run npm run db:migrate:postgres first.");
+  }
 
   return database;
 }

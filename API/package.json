@@ -10,11 +10,14 @@
     "bootstrap-admin-invitation": "node scripts/invite-first-admin.js",
     "resend-admin-invitation": "node scripts/resend-admin-invitation.js",
     "email-test": "node scripts/verify-email-delivery.js",
+    "db:migrate:postgres": "node scripts/migrate-postgresql.js",
+    "db:import:sqlite": "node scripts/import-sqlite-to-postgres.js",
     "test": "node --test",
     "lint": "eslint src test scripts"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
-    "nodemailer": "^10.1.6"
+    "nodemailer": "^10.1.6",
+    "pg": "^8.23.1"
   }
 }

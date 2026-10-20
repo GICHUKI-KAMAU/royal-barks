@@ -1,22 +1,9 @@
-import path from "node:path";
-import { mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import Database from "better-sqlite3";
 import { bootstrapAdmin, initializeAuth } from "../src/auth.js";
+import { createDatabase } from "../src/database.js";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const dbPath = process.env.ROYAL_BARKS_DB || path.join(root, "API", "data", "royal_barks.sqlite3");
-mkdirSync(path.dirname(dbPath), { recursive: true });
-const db = new Database(dbPath);
-db.pragma("foreign_keys = ON");
-db.exec(
-  "CREATE TABLE IF NOT EXISTS members(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, status TEXT NOT NULL, created_at TEXT NOT NULL)",
-);
-db.exec(
-  "CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY, event TEXT NOT NULL, actor TEXT NOT NULL, entity TEXT NOT NULL, entity_id INTEGER, details_json TEXT NOT NULL, created_at TEXT NOT NULL)",
-);
+const db = createDatabase();
 initializeAuth(db, (event, actor, entity, id, details) =>
   db
     .prepare(
@@ -78,5 +65,5 @@ try {
   process.exitCode = 1;
 } finally {
   rl.close();
-  db.close();
+  await db.close();
 }

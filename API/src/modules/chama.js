@@ -40,7 +40,8 @@ function shuffled(values) {
 }
 
 export function initializeChama(db, { statusOn, requireRole, requireActiveMember, session, log }) {
-  db.exec(`
+  if (db.kind !== "postgres") {
+    db.exec(`
  CREATE TABLE IF NOT EXISTS chama_cycles(
    id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',
    expected_start_date TEXT NOT NULL,expected_end_date TEXT NOT NULL,first_payout_date TEXT NOT NULL,opt_in_deadline TEXT NOT NULL,
@@ -97,24 +98,25 @@ export function initializeChama(db, { statusOn, requireRole, requireActiveMember
  CREATE INDEX IF NOT EXISTS chama_cards_cycle_position_idx ON chama_cards(cycle_id,display_position);
  CREATE INDEX IF NOT EXISTS chama_payouts_cycle_date_idx ON chama_payouts(cycle_id,expected_date);
  `);
-  if (
-    !db
-      .prepare("PRAGMA table_info(chama_payouts)")
-      .all()
-      .some((c) => c.name === "selection_id")
-  )
-    db.exec(
-      "ALTER TABLE chama_payouts ADD COLUMN selection_id TEXT REFERENCES chama_selections(id)",
-    );
-  if (
-    !db
-      .prepare("PRAGMA table_info(chama_selection_corrections)")
-      .all()
-      .some((c) => c.name === "other_selection_id")
-  )
-    db.exec(
-      "ALTER TABLE chama_selection_corrections ADD COLUMN other_selection_id TEXT REFERENCES chama_selections(id)",
-    );
+    if (
+      !db
+        .prepare("PRAGMA table_info(chama_payouts)")
+        .all()
+        .some((c) => c.name === "selection_id")
+    )
+      db.exec(
+        "ALTER TABLE chama_payouts ADD COLUMN selection_id TEXT REFERENCES chama_selections(id)",
+      );
+    if (
+      !db
+        .prepare("PRAGMA table_info(chama_selection_corrections)")
+        .all()
+        .some((c) => c.name === "other_selection_id")
+    )
+      db.exec(
+        "ALTER TABLE chama_selection_corrections ADD COLUMN other_selection_id TEXT REFERENCES chama_selections(id)",
+      );
+  }
   const events = new EventEmitter();
   events.setMaxListeners(500);
   const audit = (cycleId, actor, action, details) => {
